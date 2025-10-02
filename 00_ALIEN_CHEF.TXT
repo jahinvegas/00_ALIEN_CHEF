@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ALIEN CHEF — Culinary Command Console</title>
+
+  <!--PROJECT: ALIEN_CHEF_0001
+    ====
+    ALIEN CHEF CONSOLE (Single-file version)
+    ====
+
+    WHAT THIS DOES
+    ----
+    • Embeds a YouTube *playlist* in an "alien chef" console.
+    • Custom "culinary rune" controls (play / pause / next / prev / mute / vol / seek).
+    • Live gauges & meters driven by the YouTube IFrame Player API.
+    • Animated "flavor oscilloscope" & blinking kitchen status lights.
+    • "Talking" console: on actions/events it speaks via Web Speech API.
+    • Live clock + tooltips with plain English labels (accessibility).
+
+    HOW TO USE
+    ----
+    1) Replace PLAYLIST_ID_HERE inside the YT URL below with your
+	playlist ID.
+    Example: https://www.youtube.com/playlist?list=PLxxxx -> ID is
+	the value after list=
+    2) Save as alien-chef.html and open in your browser.
+    3) Click the glowing rune buttons; hover for English tooltips.
+    4) If speech doesn't play, click once anywhere (browser user-gesture 	requirement).
+
+    DESIGN NOTES
+    ----
+    • Everything is contained in this file (HTML+CSS+JS).
+    • No external libs (except YouTube IFrame API).
+    • Runic text = Unicode shapes so it looks alien, but we keep ARIA 	labels + tooltips.
+
+    TWEAKABLE VARIABLES (search for :root)
+    ----
+    • Accent colors, glow strength, grid sizes, animation speeds.
+
+  -->
+
+  <style>
+    :root{
+    --bg: #0a0508;
+    --panel: #1a0f0b;
+    --glass: rgba(55, 25, 15, 0.45);
+    --line: #ff6b35;
+    --accent: #ffb627;
+    --hot: #ff2e63;
+    --good: #4dff88;
+    --warn: #ffd24d;
+    --txt: #ffe7cd;
+    --muted: #b4a08a;
+    --glow-1: 0 0 1.2rem #ff6b35, inset 0 0 1.2rem #ff6b3533;
+    --glow-2: 0 0 1.2rem #ffb627, inset 0 0 1.2rem #ffb62733;
+    --radius: 18px;
+    }
+
+    /* Reset-ish */
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+    margin:0; font-family: system-ui, Segoe UI, Roboto, Arial, sans-serif;
+    background:
+    radial-gradient(1200px 600px at 10% 0%, #240f0c 0%, transparent 60%),
+    radial-gradient(1400px 800px at 90% 10%, #2e1a0d 0%, transparent 60%),
+    linear-gradient(160deg, #0a0508 0%, #030201 100%);
+    color:var(--txt);
+    overflow-x:hidden;
+    }
+
+    /* Animated particles background (food particles) */
+    .stars, .stars:after{
+    content:"";
+    position:fixed; inset:0; z-index:-2;
+    background:
+    radial-gradient(1px 1px at 20% 30%, #ff6b3588 50%, transparent 51%) repeat,
+    radial-gradient(1px 1px at 70% 80%, #ffb62788 50%, transparent 51%) repeat,
+    radial-gradient(1px 1px at 40% 60%, #4dff8888 50%, transparent 51%) repeat;
+    background-size: 3px 3px, 2px 2px, 1.5px 1.5px;
+    animation: drift 120s linear infinite;
+    }
+    .stars:after{ filter: blur(1px); opacity:.7; animation-duration: 160s; }
+    @keyframes drift{ to { background-position: 2000px 0, -1600px 0, 1200px 0; } }
+
+    header, footer{
+    position:relative;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 22px; gap:12px;
+    background: linear-gradient(180deg, #1a0f0bc0, #0914060a0);
+    border-bottom:1px solid #402d1d;
+    box-shadow: var(--glow-1);
+    backdrop-filter: blur(10px);
+    }
+    footer{
+    border-top:1px solid #402d1d; border-bottom:none; margin-top:30px;
+    box-shadow: none; background: linear-gradient(0deg, #1a0f0bc0, #0914060a0);
+    }
+    .brand{
+    display:flex; align-items:center; gap:12px; letter-spacing:.1em;
+    font-weight:700; color:var(--txt);
+    text-shadow: 0 0 8px #ff6b35;
+    }
+    .logo{
+    width:38px; height:38px; border-radius:50%;
+    display:grid; place-items:center;
+    color:#120201; background: radial-gradient(#ff6b35, #4a1800);
+    box-shadow: var(--glow-1);
+    font-weight:900; font-size:24px;
+    }
+    .meta{
+    font-size:.9rem; color:var(--muted);
+    }
+
+    main{
+    max-width:1200px; margin:24px auto; padding:0 16px;
+    }
+
+    /* Console layout */
+    .console{
+    display:grid; gap:16px;
+    grid-template-columns: 1.4fr .8fr;
+    }
+    @media (max-width: 980px){
+    .console{ grid-template-columns: 1fr; }
+    }
+
+    /* PLAYER PANEL */
+    .panel{
+    background:linear-gradient(180deg, var(--glass), transparent 120%);
+    border:1px solid #402d1d;
+    border-radius: var(--radius);
+    padding:14px;
+    box-shadow: var(--glow-2);
+    position:relative;
+    overflow:hidden;
+    }
+    .panel:before{
+    content:"";
+    position:absolute; inset:-2px;
+    background: conic-gradient(from 180deg at 50% 50%, #ff6b3522, transparent 30%, #ffb62722 60%, transparent 80%);
+    filter: blur(18px); opacity:.5; pointer-events:none;
+    z-index:0;
+    }
+
+    .panel-title{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:10px; position:relative; z-index:1;
+    }
+    .panel-title h2{
+    margin:0; font-weight:800; letter-spacing:.06em;
+    font-size:1.05rem; color:#fff6e3;
+    }
+    .chip{
+    font-size:.75rem; color:#100001;
+    padding:5px 10px; border-radius:999px;
+    background: linear-gradient(90deg, #ff6b35, #ffb627);
+    box-shadow: 0 0 .8rem #ff6b3588;
+    font-weight:700;
+    }
+
+    .viewport{
+    position:relative; z-index:1;
+    border-radius:12px;
+    background: radial-gradient(140% 140% at 50% 0%, #2a0f0a 0%, #1a070a 65%, #0b0304 95%);
+    outline:1px solid #5a3024;
+    overflow:hidden;
+    box-shadow: inset 0 0 30px #ff6b3522;
+    }
+
+    /* The actual YouTube IFrame goes here */
+    .yt-wrap{
+    position:relative; aspect-ratio: 16/9; width:100%;
+    isolation:isolate;
+    }
+    #player{ position:absolute; inset:0; width:100%; height:100%; border:0; }
+
+    /* HUD overlays over the video */
+    .hud-grid{
+    position:absolute; inset:0; pointer-events:none; z-index:3;
+    background-image:
+    linear-gradient(transparent 95%, #ff6b3522 95%),
+    linear-gradient(90deg, transparent 95%, #ffb62722 95%);
+    background-size: 26px 26px, 26px 26px;
+    mask: linear-gradient(transparent, #000 30% 70%, transparent);
+    mix-blend-mode: screen;
+    }
+
+    .status-lights{
+    position:absolute; top:8px; right:8px; display:flex; gap:8px; z-index:4;
+    }
+    .light{
+    width:10px; height:10px; border-radius:50%;
+    box-shadow: 0 0 12px currentColor;
+    animation: blink 1.6s infinite steps(2, jump-none);
+    }
+    .light.play{ color: var(--good); }
+    .light.load{ color: var(--warn); animation-duration: .8s; }
+    .light.err{ color: var(--hot); animation-duration: .4s; }
+    @keyframes blink { 50%{ filter:brightness(.3) } }
+
+    /* Control bar (culinary runes) */
+    .controls{
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    padding:10px; margin-top:10px; border-radius:12px;
+    background: linear-gradient(180deg, #170704, #220e0a);
+    border: 1px solid #623021; box-shadow: inset 0 0 30px #ff6b3510;
+    }
+    .rune{
+    position:relative;
+    border:none; border-radius:12px; padding:10px 14px;
+    font-size:20px; line-height:1;
+    color:#fff8e8; background: radial-gradient(120% 180% at 50% -20%, #3a2e10, #351515);
+    box-shadow: 0 0 12px #ff6b3566, inset 0 0 22px #ffb62726;
+    cursor:pointer; user-select:none; outline: none;
+    transition: transform .08s ease;
+    }
+    .rune:active{ transform: translateY(1px) scale(.98); }
+    .rune[data-tip]:hover:after{
+    content: attr(data-tip);
+    position:absolute; left:50%; transform:translateX(-50%); bottom:calc(100% + 8px);
+    white-space:nowrap; background:#0a0000; color:#fff8ea; padding:6px 8px;
+    border:1px solid #442200; border-radius:6px; font-size:.75rem;
+    backdrop-filter: blur(3px);
+    }
+    /* Rune glyph style (using shapes + culinary-like unicode) */
+    .r{ letter-spacing:.08em; text-shadow: 0 0 8px #ff6b35, 0 0 12px #ffb627; }
+    .r.play::before{ content:"🔥"; }
+    .r.pause::before{ content:"❄️"; }
+    .r.prev::before{ content:"⫷"; }
+    .r.next::before{ content:"⫸"; }
+    .r.mute::before{ content:"🔇"; }
+    .r.volp::before{ content:"🔊"; }
+    .r.volm::before{ content:"🔉"; }
+    .r.seekb::before{ content:"⏪"; }
+    .r.seekf::before{ content:"⏩"; }
+
+    /* Gauges column */
+    .gauges{
+    display:grid; gap:12px;
+    grid-template-columns: repeat(2, 1fr);
+    }
+    @media (max-width: 540px){ .gauges{ grid-template-columns: 1fr; } }
+
+    .gauge{
+    position:relative; padding:14px; border-radius:14px;
+    background: linear-gradient(180deg, #170b07, #220e0a);
+    border:1px solid #522f1f; overflow:hidden;
+    }
+    .g-title{ font-size:.8rem; color:var(--muted); letter-spacing:.1em; margin-bottom:6px; }
+
+    .radial{
+    width:100%; aspect-ratio:1/1; border-radius:50%;
+    background:
+    conic-gradient(var(--line) var(--pct, 0%), #442214 0),
+    radial-gradient(closest-side, #1b1004 70%, transparent 71% 100%),
+    radial-gradient(closest-side, #261210, #050e03);
+    box-shadow: inset 0 0 40px #ff6b3520;
+    position:relative;
+    }
+    .radial:after{
+    content: attr(data-label);
+    position:absolute; inset:auto 0 45% 0;
+    text-align:center; color:#fff8ea; font-weight:800; letter-spacing:.12em;
+    text-shadow: 0 0 10px #ff6b35;
+    }
+    .bar{
+    height:12px; border-radius:999px;
+    background: linear-gradient(90deg, var(--good), var(--warn), var(--hot));
+    filter: saturate(1.2) brightness(.95);
+    box-shadow: inset 0 0 10px #000, 0 0 14px #ffb62755;
+    position:relative; overflow:hidden;
+    }
+    .bar > span{
+    display:block; height:100%; width:var(--pct, 0%);
+    background: linear-gradient(90deg, #ff6b35, #ffb627);
+    box-shadow: 0 0 18px #ff6b35aa;
+    }
+
+    /* Oscilloscope */
+    .scope{
+    height:120px; border-radius:10px; background:#040201; border:1px solid #422e1e;
+    overflow:hidden; position:relative;
+    }
+    canvas#scope{ width:100%; height:100%; display:block; }
+
+    /* AI Chat panel */
+    .ai{
+    margin-top:14px; display:grid; gap:10px;
+    }
+    .ai .row{ display:flex; gap:10px; }
+    .ai input, .ai button{
+    border-radius:10px; border:1px solid #552d1f; background:#220e0a; color:#fff7ea;
+    padding:10px 12px; font-size:0.95rem;
+    }
+    .ai button{
+    cursor:pointer; box-shadow: 0 0 10px #ff6b3555;
+    }
+    .ai-log{
+    max-height:160px; overflow:auto; padding:10px; border-radius:10px;
+    border:1px solid #502a1e; background:#08051a;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size:.9rem;
+    }
+    .ai-log b{ color:#ffb627; }
+
+    /* Footer */
+    .foot-grid{
+    display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;
+    width:100%;
+    }
+    .links a{ color:#ffd89f; text-decoration:none; margin-right:14px; }
+    .links a:hover{ color:#ffd7ff; text-shadow: 0 0 6px #ffd7ff; }
+
+    /* Subtle float for the viewport to feel alive */
+    .floaty { animation: floaty 8s ease-in-out infinite; }
+    @keyframes floaty { 50%{ transform: translateY(-4px) } }
+  </style>
+</head>
+<body>
+  <!-- drifting particles -->
+  <div class="stars"></div>
+
+  <header>
+    <div class="brand">
+    <div class="logo">👽</div>
+    <div>
+    <div style="font-size:1.4rem; font-weight:900; color:#ff6b35;">ALIEN CHEF CONSOLE</div>
+    <div class="meta">Status: <span id="status">Heating up...</span></div>
+    </div>
+    </div>
+    <div class="meta">Kitchen Time: <span id="clock">--:--:--</span></div>
+  </header>
+
+  <main>
+    <div class="console">
+    <!-- LEFT: PLAYER + CONTROLS -->
+    <section class="panel">
+    <div class="panel-title">
+    <h2>🍳 Recipe Viewport // Culinary Playlist</h2>
+    <span class="chip">CHEF v1.0</span>
+    </div>
+
+    <div class="viewport floaty">
+    <div class="yt-wrap">
+    <!-- The YT API will replace this div with an IFrame player -->
+    <div id="player" title="YouTube Playlist Player"></div>
+
+    <!-- HUD grid overlay -->
+    <div class="hud-grid" aria-hidden="true"></div>
+
+    <!-- STATUS LIGHTS -->
+    <div class="status-lights" aria-hidden="true">
+    <div class="light load" id="light-load" title="Preheating"></div>
+    <div class="light play" id="light-play" title="Cooking"></div>
+    <div class="light err"  id="light-err"  title="Burnt"></div>
+    </div>
+    </div>
+
+    <!-- CULINARY CONTROLS -->
+    <div class="controls" role="group" aria-label="Alien Chef Controls">
+    <button class="rune r prev"  data-action="prev"  data-tip="Previous Recipe" aria-label="Previous"></button>
+    <button class="rune r play"  data-action="play"  data-tip="Start Cooking" aria-label="Play"></button>
+    <button class="rune r pause" data-action="pause" data-tip="Pause Cooking" aria-label="Pause"></button>
+    <button class="rune r next"  data-action="next"  data-tip="Next Recipe" aria-label="Next"></button>
+    <button class="rune r mute"  data-action="mute"  data-tip="Mute Kitchen" aria-label="Mute"></button>
+    <button class="rune r volm"  data-action="vol-"  data-tip="Lower Heat" aria-label="Volume Down"></button>
+    <button class="rune r volp"  data-action="vol+"  data-tip="Raise Heat" aria-label="Volume Up"></button>
+    <button class="rune r seekb" data-action="seek-" data-tip="Rewind -10s" aria-label="Seek back"></button>
+    <button class="rune r seekf" data-action="seek+" data-tip="Fast Forward +10s" aria-label="Seek forward"></button>
+    </div>
+    </div>
+    </section>
+
+    <!-- RIGHT: GAUGES + SCOPE + AI CHAT -->
+    <aside class="panel">
+    <div class="panel-title">
+    <h2>🔬 Kitchen Telemetry // Flavor Diagnostics</h2>
+    <span class="chip">LIVE</span>
+    </div>
+
+    <div class="gauges">
+    <!-- Radial gauge = progress -->
+    <div class="gauge">
+    <div class="g-title">🍽️ Recipe Progress</div>
+    <div class="radial" id="g-progress" data-label="0%"></div>
+    </div>
+
+    <!-- Radial gauge = volume -->
+    <div class="gauge">
+    <div class="g-title">🔊 Kitchen Volume</div>
+    <div class="radial" id="g-volume" data-label="0%"></div>
+    </div>
+
+    <!-- Bar gauge = buffer -->
+    <div class="gauge">
+    <div class="g-title">⏳ Prep Buffer</div>
+    <div class="bar"><span id="g-buffer" style="--pct:0%"></span></div>
+    </div>
+
+    <!-- Bar gauge = CPU-ish activity (fake fun meter) -->
+    <div class="gauge">
+    <div class="g-title">🌡️ Heat Intensity</div>
+    <div class="bar"><span id="g-flux" style="--pct:0%"></span></div>
+    </div>
+    </div>
+
+    <!-- Oscilloscope -->
+    <div class="gauge" style="margin-top:12px">
+    <div class="g-title">📊 Flavor Waveform</div>
+    <div class="scope"><canvas id="scope"></canvas></div>
+    </div>
+
+    <!-- Simple "AI" chef assistant -->
+    <div class="ai">
+    <div class="g-title">👨‍🍳 Chef Assistant AI</div>
+    <div class="ai-log" id="ai-log" aria-live="polite"></div>
+    <div class="row">
+    <input id="ai-input" placeholder="Ask the chef... (e.g., 'next', 'mute', 'how long left?')" />
+    <button id="ai-send">Send</button>
+    <button id="ai-voice">🔈 Voice</button>
+    </div>
+    </div>
+    </aside>
+    </div>
+  </main>
+
+  <footer>
+    <div class="foot-grid">
+    <div class="links">
+    <!-- footer placeholders -->
+    <a href="#">About</a>
+    <a href="#">Recipes</a>
+    <a href="#">Contact</a>
+    <a href="#">YouTube</a>
+    </div>
+    <div class="meta">© <span id="year"></span> ALIEN_CHEF_0001 🛸👨‍🍳</div>
+    </div>
+  </footer>
+
+  <!-- YouTube IFrame API -->
+  <script src="https://www.youtube.com/iframe_api"></script>
+
+  <script>
+  /* ====
+    UTILITIES & GLOBAL STATE
+    ==== */
+  const $ = sel => document.querySelector(sel);
+  const log = (...args) => console.log("[ALIEN CHEF]", ...args);
+
+  const ui = {
+    clock: $('#clock'),
+    year: $('#year'),
+    status: $('#status'),
+    lightLoad: $('#light-load'),
+    lightPlay: $('#light-play'),
+    lightErr:  $('#light-err'),
+    gProgress: $('#g-progress'),
+    gVolume:   $('#g-volume'),
+    gBuffer:   $('#g-buffer'),
+    gFlux:    $('#g-flux'),
+    scope:    $('#scope'),
+    aiLog:    $('#ai-log'),
+    aiInput:   $('#ai-input'),
+    aiSend:    $('#ai-send'),
+    aiVoice:   $('#ai-voice'),
+  };
+
+  let player = null;
+  let playerReady = false;
+  let lastError = null;
+
+  /* Clock + year */
+  function tickClock(){
+    const d = new Date();
+    ui.clock.textContent = d.toLocaleTimeString();
+    ui.year.textContent = d.getFullYear();
+  }
+  setInterval(tickClock, 1000); tickClock();
+
+  /* Speech Synthesis (talking chef) */
+  function speak(text){
+    try{
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.02; u.pitch = 1.05; u.volume = 0.95;
+    const voices = speechSynthesis.getVoices();
+    const nice = voices.find(v => /en/i.test(v.lang) && /female/i.test(v.name)) || voices[0];
+    if(nice) u.voice = nice;
+    speechSynthesis.cancel(); // stop overlaps
+    speechSynthesis.speak(u);
+    }catch(e){ /* ignore speech errors */ }
+  }
+
+  /* ====
+    YOUTUBE PLAYER
+    ==== */
+  // 1) Injected callback that YT API calls when it's ready:
+  window.onYouTubeIframeAPIReady = function(){
+    // IMPORTANT: replace PLAYLIST_ID_HERE with your ID.
+    // Example: list: 'PLrYD4SJlktuJdY0rvmaR4LxPgK1WoH0RB&si=PH16wWR0uDrzku8u'
+    const playlistId='PLrYD4SJlktuKrOug9rJDdr7YEZuhI23kC';
+
+    player = new YT.Player('player', {
+    width: '100%',
+    height: '100%',
+    playerVars: {
+    listType: 'playlist',
+    list: playlistId,
+    controls: 0,    // hide native controls (we use custom)
+    modestbranding: 1,
+    rel: 0,
+    color: 'white',
+    iv_load_policy: 3,
+    },
+    events: {
+    onReady: onReady,
+    onStateChange: onStateChange,
+    onError: onError
+    }
+    });
+  };
+
+  function onReady(){
+    playerReady = true;
+    ui.status.textContent = 'Kitchen Ready! 🍳';
+    ui.lightLoad.style.filter = "grayscale(1) brightness(.5)";
+    speak('Alien chef console online. Kitchen is ready to cook.');
+    // Start updating gauges
+    requestAnimationFrame(updateGauges);
+  }
+
+  function onStateChange(e){
+    const YTS = YT.PlayerState;
+    switch(e.data){
+    case YTS.UNSTARTED: ui.status.textContent = 'Waiting to cook...'; break;
+    case YTS.ENDED:    ui.status.textContent = 'Recipe complete! 🍽️'; speak('Recipe finished. Moving to next dish.'); break;
+    case YTS.PLAYING:   ui.status.textContent = 'Cooking! 🔥'; ui.lightPlay.style.filter = ""; speak('Now cooking!'); break;
+    case YTS.PAUSED:    ui.status.textContent = 'Paused ❄️'; speak('Cooking paused.'); break;
+    case YTS.BUFFERING: ui.status.textContent = 'Preheating…'; ui.lightLoad.style.filter = ""; break;
+    case YTS.CUED:    ui.status.textContent = 'Recipe loaded'; break;
+    }
+  }
+
+  function onError(err){
+    lastError = err.data;
+    ui.status.textContent = 'Kitchen Error! 🔥';
+    ui.lightErr.style.filter = "";
+    speak('Warning! Something burned in the kitchen.');
+  }
+
+  /* ====
+    CONTROLS (Culinary Runes)
+    ==== */
+  function bindControls(){
+    document.querySelectorAll('.rune').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+    if(!playerReady) return;
+    const a = btn.dataset.action;
+    try{
+    if(a==='play') player.playVideo();
+    if(a==='pause') player.pauseVideo();
+    if(a==='prev') player.previousVideo();
+    if(a==='next') player.nextVideo();
+    if(a==='mute') player.isMuted() ? player.unMute() : player.mute();
+    if(a==='vol+') player.setVolume(Math.min(100, player.getVolume()+10));
+    if(a==='vol-') player.setVolume(Math.max(0, player.getVolume()-10));
+    if(a==='seek+') player.seekTo(player.getCurrentTime()+10, true);
+    if(a==='seek-') player.seekTo(Math.max(0, player.getCurrentTime()-10), true);
+    }catch(e){ /* ignore */ }
+    });
+    });
+  }
+  bindControls();
+
+  /* ====
+    GAUGES + METERS + SCOPE
+    ==== */
+  // Resize canvas to CSS pixels
+  function fitCanvas(c){
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const rect = c.getBoundingClientRect();
+    c.width = Math.floor(rect.width * dpr);
+    c.height = Math.floor(rect.height * dpr);
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    return ctx;
+  }
+  let scopeCtx = fitCanvas(ui.scope);
+  window.addEventListener('resize', ()=> scopeCtx = fitCanvas(ui.scope));
+
+  let t = 0;
+  function drawScope(){
+    const w = ui.scope.clientWidth;
+    const h = ui.scope.clientHeight;
+    scopeCtx.clearRect(0,0,w,h);
+    // neon grid
+    scopeCtx.strokeStyle = '#ff6b3522';
+    scopeCtx.lineWidth = 1;
+    for(let x=0; x<w; x+=22){ scopeCtx.beginPath(); scopeCtx.moveTo(x,0); scopeCtx.lineTo(x,h); scopeCtx.stroke(); }
+    for(let y=0; y<h; y+=18){ scopeCtx.beginPath(); scopeCtx.moveTo(0,y); scopeCtx.lineTo(w,y); scopeCtx.stroke(); }
+    // waveform (synthetic)
+    scopeCtx.lineWidth = 2;
+    scopeCtx.strokeStyle = '#ffb627';
+    scopeCtx.beginPath();
+    for(let x=0; x<w; x++){
+    const y = h/2 + Math.sin((x+t)/22)*18 + Math.sin((x+t)/7)*6;
+    if(x===0) scopeCtx.moveTo(x,y); else scopeCtx.lineTo(x,y);
+    }
+    scopeCtx.stroke();
+    // glowing dot
+    const gx = (t*2) % w;
+    const gy = h/2 + Math.sin((gx+t)/18)*18;
+    scopeCtx.fillStyle = '#ff6b35';
+    scopeCtx.shadowColor = '#ff6b35';
+    scopeCtx.shadowBlur = 12;
+    scopeCtx.beginPath(); scopeCtx.arc(gx,gy,3,0,Math.PI*2); scopeCtx.fill();
+    scopeCtx.shadowBlur = 0;
+    t += 2;
+  }
+
+  function pct(n){ return Math.max(0, Math.min(1, n)); }
+  function setRadial(el, p){
+    const pc = Math.round(p*100);
+    el.style.setProperty('--pct', (pc*3.6) + 'deg');
+    el.setAttribute('data-label', pc + '%');
+  }
+
+  function updateGauges(){
+    if(playerReady){
+    const dur = player.getDuration() || 0;
+    const cur = player.getCurrentTime() || 0;
+    const vol = (player.getVolume() || 0) / 100;
+
+    // progress radial
+    setRadial(ui.gProgress, dur ? cur/dur : 0);
+
+    // volume radial
+    setRadial(ui.gVolume, vol);
+
+    // buffer bar (approx via loaded fraction)
+    if(typeof player.getVideoLoadedFraction === 'function'){
+    const frac = pct(player.getVideoLoadedFraction() || 0);
+    ui.gBuffer.style.setProperty('--pct', Math.round(frac*100) + '%');
+    }
+
+    // fun flux meter (reacts to play/pause)
+    const isPlaying = player.getPlayerState && player.getPlayerState() === YT.PlayerState.PLAYING;
+    const flux = isPlaying ? (50 + 40*Math.sin(performance.now()/400)) : 8;
+    ui.gFlux.style.setProperty('--pct', Math.round(pct((flux)/100)*100) + '%');
+    }
+
+    drawScope();
+    requestAnimationFrame(updateGauges);
+  }
+
+  /* ====
+    AI CHEF (toy chatbot)
+    ==== */
+  function aiSay(txt){
+    const line = document.createElement('div');
+    line.innerHTML = `<b>Chef AI:</b> ${txt}`;
+    ui.aiLog.appendChild(line);
+    ui.aiLog.scrollTop = ui.aiLog.scrollHeight;
+    speak(txt);
+  }
+  function userSay(txt){
+    const line = document.createElement('div');
+    line.innerHTML = `<b>You:</b> ${txt}`;
+    ui.aiLog.appendChild(line);
+    ui.aiLog.scrollTop = ui.aiLog.scrollHeight;
+  }
+  function aiHandle(cmd){
+    const c = cmd.trim().toLowerCase();
+
+    // control shortcuts
+    if(/^(play|cook|start|resume)$/.test(c)){ player?.playVideo(); return aiSay('Firing up the stove!'); }
+    if(/^(pause|hold|stop|wait)$/.test(c)){ player?.pauseVideo(); return aiSay('Pausing the cooking process.'); }
+    if(/^(next|skip)$/.test(c)){ player?.nextVideo(); return aiSay('Moving to the next recipe!'); }
+    if(/^(prev|previous|back)$/.test(c)){ player?.previousVideo(); return aiSay('Going back to the previous dish.'); }
+    if(/^(mute|silence|quiet)$/.test(c)){ if(player){ player.isMuted()?player.unMute():player.mute(); } return aiSay('Toggling kitchen audio.'); }
+    if(/^vol(ume)?\s*(\+|up|increase|raise)$/.test(c)){ if(player){ player.setVolume(Math.min(100, player.getVolume()+10)); } return aiSay('Raising the heat by 10 degrees!'); }
+    if(/^vol(ume)?\s*(-|down|decrease|lower)$/.test(c)){ if(player){ player.setVolume(Math.max(0, player.getVolume()-10)); } return aiSay('Lowering the heat by 10 degrees.'); }
+    if(/^(seek|jump)\s*(\+|forward)?/.test(c)){ if(player){ player.seekTo(player.getCurrentTime()+10, true); } return aiSay('Fast forwarding 10 seconds.'); }
+    if(/^(seek|jump)\s*(-|back|rewind)/.test(c)){ if(player){ player.seekTo(Math.max(0, player.getCurrentTime()-10), true); } return aiSay('Rewinding 10 seconds.'); }
+
+    // Q&A style
+    if(/(how long left|\btime left\b|\bremaining\b)/.test(c)){
+    if(playerReady){
+    const left = Math.max(0,(player.getDuration()||0) - (player.getCurrentTime()||0));
+    return aiSay(`About ${Math.ceil(left)} seconds left in this recipe.`);
+    }
+    return aiSay('Still preheating the kitchen. Cannot estimate time.');
+    }
+
+    // Default flavor text
+    const lines = [
+    'Chef listening. What would you like to cook?',
+    'Kitchen temperature optimal. Ready for your command.',
+    'I translate your wishes into culinary action.',
+    'All ingredients prepped. What\'s next?',
+    ];
+    aiSay(lines[Math.floor(Math.random()*lines.length)]);
+  }
+
+  ui.aiSend.addEventListener('click', ()=>{
+    const val = ui.aiInput.value.trim();
+    if(!val) return;
+    userSay(val);
+    ui.aiInput.value = '';
+    aiHandle(val);
+  });
+  ui.aiInput.addEventListener('keydown', (e)=>{
+    if(e.key==='Enter'){ ui.aiSend.click(); }
+  });
+  ui.aiVoice.addEventListener('click', ()=>{
+    aiSay('Voice mode active. I will narrate all kitchen activities.');
+  });
+
+  /* Kick a first line */
+  aiSay('Welcome to the Alien Chef Console! Load your recipes and start cooking.');
+  </script>
+</body>
+</html>
